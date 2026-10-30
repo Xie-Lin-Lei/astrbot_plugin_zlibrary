@@ -29,7 +29,13 @@ import astrbot.api.message_components as Comp
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools
-from astrbot.core.star.filter.command import GreedyStr
+
+try:
+    # GreedyStr 让指令参数吃掉剩余全部文本；老版本 AstrBot 里没有这个类，
+    # 缺失时退回 str，此时用 _full_query() 从原始消息里补全多词查询。
+    from astrbot.core.star.filter.command import GreedyStr
+except Exception:  # pragma: no cover
+    GreedyStr = str
 
 PLUGIN_NAME = "astrbot_plugin_zlibrary"
 RESULT_TTL = 30 * 60  # 搜索结果缓存时长（秒）
@@ -369,7 +375,8 @@ class ZLibraryClient:
                 return
             if not self.email or not self.password:
                 raise ZLibraryError(
-                    "请先在插件配置中填写 Z-Library 的 email 与 password"
+                    "还没配置 Z-Library 账号：打开插件配置，填写 email（账号邮箱）和 "
+                    "password（账号密码），其余项保持默认即可"
                 )
             problems = []
             for domain in list(self._order):
@@ -633,6 +640,13 @@ class ZLibraryFinder(Star):
             data_dir = Path("data") / "plugin_data" / PLUGIN_NAME
         self._download_dir = Path(data_dir) / "downloads"
         self._download_dir.mkdir(parents=True, exist_ok=True)
+        if not str(self.config.get("email") or "").strip() or not str(
+            self.config.get("password") or ""
+        ):
+            logger.warning(
+                f"[{PLUGIN_NAME}] 还没配置 Z-Library 账号：请在插件配置里填写 email 与 password。"
+                "填好后可以发送「找书检测」确认连通性。"
+            )
 
     # ---------- 内部工具 ----------
 
@@ -692,6 +706,33 @@ class ZLibraryFinder(Star):
                     pass
         except OSError:
             pass
+
+    def _full_query(self, event: AstrMessageEvent, arg) -> str:
+        """取出完整查询词。
+
+        新版 AstrBot 用 GreedyStr 会把剩余文本一次性传进来；老版本只能拿到第一个词，
+        这时从原始消息里把「找书」后面的整段文本找回来，保证「找书 数据结构与算法 (C++版)」可用。
+        """
+        arg = str(arg or "").strip()
+        raw = str(getattr(event, "message_str", "") or "").strip()
+        if not raw:
+            return arg
+        match = re.search(r"(?:^|[\s/])(?:找书|zhaoshu)\s+(.+)$", raw, re.I | re.S)
+        if match:
+            full = re.sub(r"\s+", " ", match.group(1)).strip()
+            if len(full) > len(arg):
+                return full
+        return arg
+
+    def _troubleshoot(self) -> str:
+        """排查建议；代理没配时额外点名。"""
+        text = TROUBLESHOOT
+        if not str(self.config.get("proxy") or "").strip():
+            text += (
+                "\n5) 你还没有设置 proxy。国内网络访问 Z-Library 会因 DNS 污染连不上，"
+                "请在插件配置 proxy 里填代理，例如 http://127.0.0.1:7897"
+            )
+        return text
 
     async def _search_books(self, query: str) -> list[dict]:
         """按配置里的数量/排序/格式/语言执行一次搜索。"""
@@ -839,7 +880,7 @@ class ZLibraryFinder(Star):
     @filter.command("找书", alias={"zhaoshu"})
     async def find_book(self, event: AstrMessageEvent, query: GreedyStr):
         """找书 <书名/作者/关键词>：在 Z-Library 搜索书籍"""
-        query = str(query).strip()
+        query = self._full_query(event, query)
         if not query:
             yield event.plain_result("用法：找书 <书名或关键词>，例如：找书 三体")
             return
@@ -847,7 +888,7 @@ class ZLibraryFinder(Star):
         try:
             books = await self._search_books(query)
         except DomainUnreachable as e:
-            yield event.plain_result(f"❌ 搜索失败：{e}{TROUBLESHOOT}")
+            yield event.plain_result(f"❌ 搜索失败：{e}{self._troubleshoot()}")
             return
         except ZLibraryError as e:
             yield event.plain_result(f"❌ 搜索失败：{e}")
@@ -904,7 +945,7 @@ class ZLibraryFinder(Star):
             if not books and author:
                 books = await self._search_books(title)
         except DomainUnreachable as e:
-            yield event.plain_result(f"❌ 搜索失败：{e}{TROUBLESHOOT}")
+            yield event.plain_result(f"❌ 搜索失败：{e}{self._troubleshoot()}")
             return
         except ZLibraryError as e:
             yield event.plain_result(f"❌ 搜索失败：{e}")
@@ -979,7 +1020,7 @@ class ZLibraryFinder(Star):
             msg = f"❌ 下载失败：{e}"
             if link:
                 msg += f"\n也可以试试直接打开链接：{link}"
-            yield event.plain_result(msg + TROUBLESHOOT)
+            yield event.plain_result(msg + self._troubleshoot())
         except ZLibraryError as e:
             msg = f"❌ 下载失败：{e}"
             if link:
@@ -1001,11 +1042,16 @@ class ZLibraryFinder(Star):
             yield event.plain_result(f"❌ 配置有误：{e}")
             return
 
+        vision_ids = self._vision_provider_ids()
         lines = [
-            f"引擎：{client.engine}",
-            f"代理：{client.proxy or '未设置（直连）'}",
-            f"账号：{client.email or '未填写'}",
+            "配置体检：",
+            f"  引擎：{client.engine}",
+            f"  账号：{client.email or '未填写 —— 必填，填 Z-Library 账号邮箱'}",
+            f"  密码：{'已填写' if client.password else '未填写 —— 必填'}",
+            f"  代理：{client.proxy or '未设置（国内网络需要，如 http://127.0.0.1:7897）'}",
+            f"  视觉模型：{'、'.join(vision_ids) if vision_ids else '跟随当前默认模型'}",
             "",
+            "站点探测：",
         ]
         for domain in client.domains:
             item = await client.probe(domain)
@@ -1027,7 +1073,7 @@ class ZLibraryFinder(Star):
             if quota:
                 lines.append(f"今日下载额度：{quota}")
         except DomainUnreachable as e:
-            lines += ["", f"❌ 登录失败：{e}", TROUBLESHOOT]
+            lines += ["", f"❌ 登录失败：{e}", self._troubleshoot()]
         except ZLibraryError as e:
             lines += ["", f"❌ 登录失败：{e}"]
         except Exception as e:

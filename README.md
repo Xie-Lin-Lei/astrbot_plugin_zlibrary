@@ -1,91 +1,135 @@
 # astrbot_plugin_zlibrary
 
-在 QQ 里用「找书」命令搜索 Z-Library 的图书，选中编号后机器人会把电子书文件直接发到会话里（私聊发给本人，群聊发到群里）。
+在 QQ 里发一条命令就能从 Z-Library 搜书，选中后机器人把电子书文件直接发给你；也可以发一张书籍封面图，让它自己认书。
 
-## 功能
+> 需要一个 Z-Library 账号（免费账号每天有下载额度），其余都能在插件面板里配。
 
-- `找书 <书名/作者/关键词>`：搜索 Z-Library，返回带编号的结果列表（书名 / 作者 / 格式 / 大小 / 语言 / 年份）。
-- `以图找书`：发送书籍封面图片，机器人用当前对话模型识别书名和作者，自动搜索（需要模型支持图片）。
-- `选书 <编号>`：下载对应书籍，以 QQ 文件的形式发送给找书人，并顺带回复账号当日下载额度。
-- `找书检测`：检查配置里每个域名的 DNS 解析、接口可用性和登录状态，排查问题先跑它。
-- 搜索结果按会话缓存 30 分钟，期间可以多次「选书」。
-- `base_url` 支持填多个域名（逗号分隔），会自动挑能用的那个；运行中当前域名失效也会自动切换。
-- 用 `curl_cffi` 模拟浏览器 TLS 指纹，能穿过 Cloudflare / DiamWall 这类会拦普通 HTTP 客户端的防护。
+## 三步开始
 
-## 安装
+**1. 安装**
 
-1. 把整个 `astrbot_plugin_zlibrary` 文件夹放进 AstrBot 的 `data/plugins/` 目录（或在 WebUI「插件管理 → 从文件/文件夹导入」上传打包好的 zip）。
-2. 重载插件，AstrBot 会按 `requirements.txt` 自动安装 `curl-cffi`（首次安装需要能访问 PyPI，稍等片刻）。
-3. 在「插件管理」里找到 **Z-Library 找书**，点开配置，填写：
-   - `base_url`：当前可用的 Z-Library 域名，默认 `https://z-library.ec, https://1lib.sk`（可填多个备用，逗号分隔）。
-   - `email` / `password`：Z-Library 账号，建议单独注册一个账号给机器人用。
-   - `proxy`：如果服务器直连不上 Z-Library，填代理，例如 `http://127.0.0.1:7897`。
+把整个目录放到 AstrBot 的 `data/plugins/` 下，或在 WebUI「插件管理 → 从文件/文件夹导入」上传 zip。AstrBot 会按 `requirements.txt` 自动安装 `curl-cffi`（首次需要能连 PyPI，稍等片刻）。
 
-## 使用
+**2. 改三个参数**
 
-| 场景 | 示例 |
-| --- | --- |
-| 私聊 | `找书 三体` → `选书 2` |
-| 群聊（默认唤醒前缀 `/`） | `/找书 三体` → `/选书 2` |
-| 群聊（@唤醒） | `@机器人 找书 三体` |
-| 排查连接问题 | `找书检测` |
-| 发封面找书 | 发一张书的封面图 → `以图找书` |
+插件管理 → **Z-Library 找书** → 配置：
 
-`找书` 支持 `zhaoshu` 别名，`选书` 支持 `xuanshu` 别名，`找书检测` 支持 `zlibcheck` 别名，`以图找书` 支持 `找书封面` / `coverbook` 别名。
+| 参数 | 必填 | 填什么 |
+| --- | --- | --- |
+| `email` | ✅ | Z-Library 账号邮箱 |
+| `password` | ✅ | Z-Library 账号密码 |
+| `proxy` | 国内必填 | 能访问 Z-Library 的代理，例如 `http://127.0.0.1:7897` |
+
+其余参数保持默认即可：
+
+```json
+{
+  "base_url": "https://z-library.ec, https://1lib.sk",
+  "proxy": "",
+  "impersonate": "chrome",
+  "cover_search": true,
+  "search_limit": 8,
+  "send_file": true,
+  "max_file_mb": 200
+}
+```
+
+**3. 验证并开用**
+
+私聊机器人发送 `找书检测`，看到「配置体检」里账号/密码已填、站点显示「接口正常」、最后一行「登录成功」，就可以发了：
+
+```
+找书 三体
+选书 1
+```
+
+## 命令
+
+| 命令 | 别名 | 作用 |
+| --- | --- | --- |
+| `找书 <书名/作者/关键词>` | `zhaoshu` | 搜索并返回带编号的结果列表 |
+| `选书 <编号>` | `xuanshu` | 下载该结果并以 QQ 文件发送，附当日下载额度 |
+| `以图找书` | `找书封面` / `coverbook` | 发送封面图后识别书名并搜索 |
+| `找书检测` | `zlibcheck` | 检查配置、域名连通性与登录状态 |
+
+群聊里需要唤醒机器人：`@机器人 找书 三体`，或使用 AstrBot 的唤醒前缀（默认 `/`）。
 
 ### 以图找书怎么用
 
-1. 私聊直接发封面图，再发 `以图找书`；或者把图片和命令放在同一条消息里发。
-2. 群里需要唤醒：`@机器人` 带图片发出，再发 `/以图找书`（先发的图片默认保留 10 分钟，可用 `cover_ttl_minutes` 调整）。
-3. 机器人会先回一句「识别为《xxx》— 作者」，然后给搜索结果，接着照常用 `选书 编号` 下载。
+先发封面图，再发 `以图找书`（图片默认保留 10 分钟）；也可以图片和命令放在同一条消息里。
 
-注意：这一步依赖模型具备视觉能力。`vision_provider_id` 支持按顺序填多个模型（逗号分隔），前一个失败（比如被限流）会自动换下一个，例如 `deepseek/deepseek-flash, zhipu/glm-4.6v-flash`；留空则用当前默认对话模型。识别用的提示词可以用 `vision_prompt` 覆盖。
+识别用的是对话模型，所以模型必须能看图。默认跟随当前对话模型；如果你的默认模型不支持图片，把 `vision_provider_id` 设成一个支持图片的模型即可，可以按顺序写多个、用逗号分隔，前一个被限流会自动换下一个：
 
-如果提示「模型繁忙/被限流（429）」，那是模型服务端过载，不是配置问题，稍后再试或换一个模型即可；如果是推理类模型，插件会自动从 `reasoning_content` 里提取书名。
+```
+deepseek/deepseek-flash, zhipu/glm-4.6v-flash
+```
+
+## 环境要求
+
+| 项目 | 说明 |
+| --- | --- |
+| Z-Library 账号 | 免费账号即可，每日下载额度有限 |
+| 网络 | 服务器要能访问 Z-Library。国内网络会被 DNS 污染，必须配 `proxy` |
+| 模型 | 仅「以图找书」需要视觉模型，搜索和下载不受影响 |
+| QQ 协议端 | 发文件依赖 OneBot 的 `upload_group_file` / `upload_private_file`，需与 AstrBot 同机；若协议端在别的机器/容器，配置 AstrBot 的 `callback_api_base`，插件会改发临时链接 |
+
+## 配置项
+
+| 参数 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `base_url` | string | `https://z-library.ec, https://1lib.sk` | 站点域名，可填多个（逗号分隔），按顺序尝试 |
+| `email` | string | 空 | Z-Library 账号邮箱，**必填** |
+| `password` | string | 空 | Z-Library 账号密码，**必填** |
+| `proxy` | string | 空 | HTTP 代理，国内必填 |
+| `impersonate` | string | `chrome` | 模拟的浏览器指纹，被拦时可换 `chrome124` / `edge101` / `firefox133` |
+| `vision_provider_id` | string | 空 | 封面识别用的模型 ID，逗号分隔按顺序尝试；空则跟随默认模型 |
+| `cover_search` | bool | `true` | 是否启用「以图找书」 |
+| `cover_ttl_minutes` | int | `10` | 先发图片再发命令时，图片的有效时间 |
+| `vision_prompt` | text | 空 | 覆盖内置的识别提示词 |
+| `search_limit` | int | `8` | 每次返回的结果数量（1-50） |
+| `order` | string | `bestmatch` | 排序：`bestmatch` / `mostpopular` / `newest` |
+| `extensions` | list | `[]` | 限定格式，如 `["PDF","EPUB"]`；空为不限 |
+| `languages` | list | `[]` | 限定语言，如 `["chinese"]`；空为不限 |
+| `send_file` | bool | `true` | 关闭则只回下载链接，不发文件 |
+| `max_file_mb` | int | `200` | 超过该大小只发链接；0 为不限 |
+| `download_timeout` | int | `180` | 下载超时（秒） |
 
 ## 常见问题
 
-### 「无法连接 … 远程计算机拒绝网络连接」
+### 连不上：`远程计算机拒绝网络连接` / DNS 解析到奇怪 IP
 
-这条错误表示 AstrBot 所在机器根本连不上该域名，有两种原因：域名已失效，或者网络到 Z-Library 被拦截（国内网络通常伴随 DNS 污染——域名会被解析成假 IP）。
+国内网络的典型症状：域名被解析到假 IP。配 `proxy` 解决，代理必须装在 **AstrBot 所在的那台机器**上，填 `http://127.0.0.1:7897`（Clash 默认混合端口，其他客户端可能是 7890/1080/10809）。
 
-处理顺序：
+### `HTTP 403 Just a moment...` / `HTTP 513 Verifying your browser`
 
-1. 发 `找书检测`，看哪一行 DNS/连接正常。
-2. 把 `base_url` 换成能直接调接口的域名（可先填 `https://z-library.ec`，实测其 `/eapi` 登录、搜索、下载接口均正常）。
-3. 如果所有域名都「不可达」，说明是网络层被拦：在 `proxy` 里填本机代理，例如 `http://127.0.0.1:7897`（Clash 默认混合端口，其他客户端可能是 7890/1080/10809）。
-4. 注意代理必须装在 **AstrBot 所在的那台机器**（或它的容器能访问到的地址），不是装在你自己电脑上。
+站点前面的 Cloudflare / DiamWall 在按 **TLS 指纹**拦人，改 User-Agent 没用。插件用 `curl_cffi` 模拟 Chrome 指纹来通过，先确认 `找书检测` 第一行显示 `引擎：curl_cffi（chrome 指纹）`；显示 `aiohttp` 说明依赖没装上，重载插件或手动 `pip install curl-cffi`。仍有域名被拦就换域名——`找书检测` 会把每个域名标成「接口正常」或「浏览器验证」。
 
-### 「账号或密码不正确」
+### `模型繁忙/被限流（429）`
 
-配置里的邮箱/密码错了，或者账号需要通过 Z-Library 网页登录验证一次。
+模型服务端过载，不是配置问题。稍后重试，或在 `vision_provider_id` 里加备用模型（逗号分隔）。
 
-### 「HTTP 403 / Just a moment...」「HTTP 513 / Verifying your browser」
+### 识别失败 / 读不出书名
 
-这两种都是站点前面的反爬防护（Cloudflare、DiamWall）在验证请求是不是浏览器。它们不只认 User-Agent，还会看 TLS 指纹，所以普通的 `aiohttp` / `requests` 会被统一拦掉——换请求头没用。
+封面文字要清晰完整。推理类模型如果只返回思考过程，插件会自动从 `reasoning_content` 提取书名；实在不行直接 `找书 书名`。
 
-插件已经用 `curl_cffi` 模拟 Chrome 指纹来解决这个问题：
+### 收不到文件
 
-1. 先确认 `找书检测` 第一行显示的是 `引擎：curl_cffi（chrome 指纹）`。如果显示 `aiohttp`，说明依赖没装上：重载插件让 AstrBot 安装，或到服务器上 `pip install curl-cffi`。
-2. 仍有域名被拦就换域名：`找书检测` 会把每个域名标成「接口正常」或「浏览器验证」，留下接口正常的那个。
-3. 都不行可以把 `impersonate` 从 `chrome` 换成 `chrome124` / `edge101` / `firefox133` 再试。
+见「环境要求 → QQ 协议端」。群聊还要保证群允许成员上传文件。
 
-实测 `https://z-library.ec` 的 `/eapi` 登录、搜索、下载接口在 `curl_cffi` 下都正常。注意它只拦网页路径，直接访问首页会 403，这不影响插件（`找书检测` 探测的是接口路径）。
+### 下载链接获取失败
 
-### 发送文件失败 / 收不到文件
+多半是当日下载额度用完（免费账号每天有限额），第二天再试或升级账号。
 
-以 QQ 文件发送依赖协议端（NapCat、Lagrange.OneBot、LLOneBot 等）的 `upload_group_file` / `upload_private_file` 接口。AstrBot 与协议端必须在同一台机器（或挂载了同一目录）；如果协议端在别的机器/容器里，请在 AstrBot 配置 `callback_api_base`，插件会把文件转成临时 HTTP 链接发送。群聊上传文件还要保证群允许成员上传文件。
+## 兼容性
 
-### 获取下载链接失败
-
-多数是当日下载额度用完（免费账号每天有限额），第二天再试或升级账号；也可能是登录态失效，插件会自动重新登录并重试下一个域名。
-
-### 只想发链接、不发文件
-
-把 `send_file` 关掉即可；`max_file_mb` 可以控制超过多少 MB 的文件自动改为只发链接。
+在 AstrBot **4.29.x** 上测试通过。老版本 AstrBot 缺少 `GreedyStr` 时插件会自动降级（不再因导入失败而加载不了），此时多词查询会从原始消息文本里补全，因此 `找书 数据结构与算法 (C++版)` 这类带空格、括号的查询依然可用。
 
 ## 说明
 
-- 插件通过 Z-Library 网页版接口（`/eapi/*`）以你自己的账号登录、搜索和下载，请遵守 Z-Library 的使用条款、注意账号每日下载限额，并仅将本插件用于个人学习用途。
-- 下载的书籍会暂存在 `data/plugin_data/astrbot_plugin_zlibrary/downloads/`，24 小时后自动清理。
-- 域名和反爬策略是 Z-Library 生态里最易变的部分：连不上先怀疑域名，再怀疑网络/代理，最后怀疑站点升级了验证方式。
+插件通过 Z-Library 网页版接口（`/eapi/*`）以你自己的账号登录、搜索和下载。请遵守 Z-Library 的使用条款、注意账号每日下载限额，仅用于个人学习用途。
+
+下载的书籍暂存在 `data/plugin_data/astrbot_plugin_zlibrary/downloads/`，24 小时后自动清理。
+
+## 许可
+
+MIT

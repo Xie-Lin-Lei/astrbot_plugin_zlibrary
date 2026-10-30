@@ -3,4 +3,4 @@ display_name: Z-Library 找书
 desc: 使用「找书」命令在 Z-Library 搜索图书，选中后把电子书文件直接发送给找书人。
 author: Xie-Lin-Lei
 repo: https://github.com/Xie-Lin-Lei/astrbot_plugin_zlibrary
-version: v1.2.1
+version: v1.3.0
