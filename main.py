@@ -821,7 +821,10 @@ class ZLibraryFinder(Star):
                     prov = None
                     logger.warning(f"[{PLUGIN_NAME}] 获取模型 {pid} 失败: {e}")
                 if prov is None:
-                    failures.append(f"{pid}: 未找到该模型，检查 vision_provider_id")
+                    failures.append(
+                        f"{pid}: 未找到该模型 —— 这个 ID 必须是 AstrBot「服务提供商」里已配置的，"
+                        "留空则用当前默认模型"
+                    )
                 else:
                     candidates.append((pid, prov))
         else:
@@ -831,7 +834,10 @@ class ZLibraryFinder(Star):
                 prov = None
                 logger.warning(f"[{PLUGIN_NAME}] 获取默认模型失败: {e}")
             if prov is None:
-                failures.append("未配置任何对话模型")
+                failures.append(
+                    "没有可用的对话模型 —— 先在 AstrBot「服务提供商」里配置一个支持图片的模型，"
+                    "或在插件配置里关闭 cover_search（搜索和下载不需要模型）"
+                )
             else:
                 candidates.append(("当前默认模型", prov))
         if not candidates:

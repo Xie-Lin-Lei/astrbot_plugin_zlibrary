@@ -30,7 +30,7 @@
     "default": true
   },
   "vision_provider_id": {
-    "description": "识别封面用的模型 ID，按顺序尝试，逗号分隔。留空则用当前默认对话模型。例如 deepseek/deepseek-flash, zhipu/glm-4.6v-flash",
+    "description": "识别封面用的模型 ID（该模型需已在 AstrBot「服务提供商」里配置，API Key 填在那里，本插件不存 Key）。按顺序尝试，逗号分隔；留空则用当前默认对话模型。例如 deepseek/deepseek-flash, zhipu/glm-4.6v-flash",
     "type": "string",
     "default": ""
   },
