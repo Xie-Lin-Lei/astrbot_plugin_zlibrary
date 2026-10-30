@@ -51,6 +51,8 @@ TROUBLESHOOT = (
     "4) 若提示缺少 curl-cffi，重载插件让 AstrBot 安装依赖，或在服务器上 pip install curl-cffi"
 )
 
+UNSUPPORTED = "__protocol_unsupported__"
+
 CHALLENGE_HINT = (
     "被浏览器验证拦截（Cloudflare / DiamWall），普通 HTTP 请求拿不到数据，请换用其他域名"
 )
@@ -799,6 +801,46 @@ class ZLibraryFinder(Star):
             return ""
         return b64
 
+    async def _send_book_file(
+        self, event: AstrMessageEvent, path: Path, name: str
+    ) -> tuple[bool, str]:
+        """把文件发给当前会话。
+
+        AstrBot 默认把 File 消息段塞进 send_private_msg，部分协议端（如 SnowLuma）
+        会以 "send c2c file message rejected" 拒绝。这里改成直接调 OneBot 的
+        upload_private_file / upload_group_file：先上传拿 file_id，再发文件消息。
+        返回 (是否成功, 错误信息)；平台没有 call_action 时返回 UNSUPPORTED。
+        """
+        bot = getattr(event, "bot", None)
+        call = getattr(bot, "call_action", None)
+        if not callable(call):
+            return False, UNSUPPORTED
+        target = str(path.resolve())
+        group_id = ""
+        try:
+            group_id = str(event.get_group_id() or "")
+        except Exception:
+            group_id = ""
+        try:
+            if group_id:
+                await call(
+                    "upload_group_file",
+                    group_id=int(group_id),
+                    file=target,
+                    name=name,
+                )
+            else:
+                await call(
+                    "upload_private_file",
+                    user_id=int(event.get_sender_id()),
+                    file=target,
+                    name=name,
+                )
+            return True, ""
+        except Exception as e:
+            logger.warning(f"[{PLUGIN_NAME}] 发送文件失败: {e}")
+            return False, str(e)[:160]
+
     def _vision_provider_ids(self) -> list[str]:
         raw = str(self.config.get("vision_provider_id") or "")
         return [x for x in re.split(r"[,，\s]+", raw.strip()) if x]
@@ -1015,13 +1057,28 @@ class ZLibraryFinder(Star):
                 filename,
                 timeout=int(self.config.get("download_timeout") or 180),
             )
-            yield event.chain_result(
-                [Comp.File(name=filename, file=str(path.resolve()))]
-            )
             self._cleanup_downloads()
             quota = await client.daily_quota()
             tip = f"\n今日下载额度：{quota}" if quota else ""
-            yield event.plain_result(f"✅ 《{title}》已发送{tip}")
+
+            sent, err = await self._send_book_file(event, path, filename)
+            if sent:
+                yield event.plain_result(f"✅ 《{title}》已发送{tip}")
+                return
+
+            # 协议端不支持 upload_*_file 时，退回框架的文件消息段（Telegram 等平台走这条）
+            if err == UNSUPPORTED:
+                yield event.chain_result(
+                    [Comp.File(name=filename, file=str(path.resolve()))]
+                )
+                yield event.plain_result(f"✅ 《{title}》已发送{tip}")
+                return
+            yield event.plain_result(
+                f"⚠️ 《{title}》已下载，但发送文件失败：{err}\n"
+                f"文件在服务器上：{path}\n"
+                "如果协议端和 AstrBot 不在同一台机器，请在 AstrBot 配置里设置 "
+                "callback_api_base，让它改发临时链接。" + tip
+            )
         except DomainUnreachable as e:
             msg = f"❌ 下载失败：{e}"
             if link:

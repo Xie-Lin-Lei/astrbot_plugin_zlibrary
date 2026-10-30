@@ -122,6 +122,16 @@ deepseek/deepseek-flash, zhipu/glm-4.6v-flash
 
 封面文字要清晰完整。推理类模型如果只返回思考过程，插件会自动从 `reasoning_content` 提取书名；实在不行直接 `找书 书名`。
 
+### 提示「已下载，但发送文件失败：send c2c file message rejected」
+
+这是 QQ 侧拒绝了文件消息，不是插件下载失败——文件已经在服务器的 `data/plugin_data/astrbot_plugin_zlibrary/downloads/` 里。
+
+插件现在优先调用 OneBot 的 `upload_private_file` / `upload_group_file`（先上传拿 `file_id`，再发文件消息），这条路径比直接把文件当消息段塞进 `send_private_msg` 更容易成功。如果仍然被拒，通常是协议端或账号侧的风控限制，可以：
+
+- 检查协议端是否支持私聊文件（部分实现只支持群文件）；
+- 在 AstrBot 配置 `callback_api_base`，让它改发临时链接；
+- 或把 `send_file` 关掉，只回下载链接。
+
 ### 收不到文件
 
 见「环境要求 → QQ 协议端」。群聊还要保证群允许成员上传文件。
