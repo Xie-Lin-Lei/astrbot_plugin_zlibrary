@@ -1,0 +1,82 @@
+{
+  "base_url": {
+    "description": "Z-Library 站点域名，可填多个用逗号分隔作为备用，例如 https://z-library.ec , https://1lib.sk。注意有些域名启用了浏览器验证（返回 513）无法直接调接口，请用能直接返回接口数据的域名",
+    "type": "string",
+    "default": "https://z-library.ec, https://1lib.sk"
+  },
+  "email": {
+    "description": "Z-Library 账号邮箱（建议单独注册一个只用于机器人的账号）",
+    "type": "string",
+    "default": ""
+  },
+  "password": {
+    "description": "Z-Library 账号密码",
+    "type": "string",
+    "default": ""
+  },
+  "proxy": {
+    "description": "访问 Z-Library 使用的 HTTP 代理，服务器直连不了时必须填写，例如 http://127.0.0.1:7897（Clash 默认混合端口）",
+    "type": "string",
+    "default": ""
+  },
+  "impersonate": {
+    "description": "模拟的浏览器指纹（Cloudflare 会拦普通 HTTP 客户端）：chrome / chrome124 / edge101 / safari17_0 / firefox133，一般保持 chrome 即可",
+    "type": "string",
+    "default": "chrome"
+  },
+  "cover_search": {
+    "description": "启用「以图找书」：发送书籍封面图片，用当前对话模型识别书名后自动搜索（需要模型支持图片）",
+    "type": "bool",
+    "default": true
+  },
+  "vision_provider_id": {
+    "description": "识别封面用的模型 ID，按顺序尝试，逗号分隔。留空则用当前默认对话模型。例如 deepseek/deepseek-flash, zhipu/glm-4.6v-flash",
+    "type": "string",
+    "default": ""
+  },
+  "cover_ttl_minutes": {
+    "description": "先发图片、再发「以图找书」时，图片的有效时间（分钟）",
+    "type": "int",
+    "default": 10
+  },
+  "vision_prompt": {
+    "description": "识别封面用的提示词（留空使用内置提示词，内置要求模型只输出 {\"title\":..,\"author\":..} 的 JSON）",
+    "type": "text",
+    "default": ""
+  },
+  "search_limit": {
+    "description": "「找书」每次返回的结果数量（1-50）",
+    "type": "int",
+    "default": 8
+  },
+  "order": {
+    "description": "搜索排序方式：bestmatch（最相关）/ mostpopular（最热门）/ newest（最新）",
+    "type": "string",
+    "default": "bestmatch"
+  },
+  "extensions": {
+    "description": "限定电子书格式，留空表示不限制，例如 [\"PDF\", \"EPUB\", \"MOBI\"]",
+    "type": "list",
+    "default": []
+  },
+  "languages": {
+    "description": "限定书籍语言，留空表示不限制，例如 [\"chinese\"] 或 [\"english\"]",
+    "type": "list",
+    "default": []
+  },
+  "send_file": {
+    "description": "选书后直接把书发成 QQ 文件给找书人；关闭则只回复下载链接",
+    "type": "bool",
+    "default": true
+  },
+  "max_file_mb": {
+    "description": "文件超过该大小（MB）时不发送文件、只发链接；0 表示不限制",
+    "type": "int",
+    "default": 200
+  },
+  "download_timeout": {
+    "description": "下载书籍的超时时间（秒）",
+    "type": "int",
+    "default": 180
+  }
+}
