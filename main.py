@@ -310,48 +310,66 @@ class ZLibraryClient:
         cookies: dict | None = None,
         timeout: float | None = None,
     ) -> tuple[int, str, str]:
-        """发请求，返回 (状态码, 文本, Content-Type)。网络错误统一转成 DomainUnreachable。"""
-        session = await self._get_session()
+        """发请求，返回 (状态码, 文本, Content-Type)。网络错误统一转成 DomainUnreachable。
+
+        代理或站点偶尔会掐断闲置后的第一条连接（curl 35 SSL_ERROR_SYSCALL 等），
+        表现为「第一次找书报错、紧接着再试就好」。所以连接类失败会换一条新连接
+        （重建 session）自动重试一次，仍失败才上报。
+        """
         to = float(timeout or self.timeout_s)
-        try:
-            if _HAS_CFFI:
-                resp = await session.request(
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            if attempt:
+                await asyncio.sleep(1.0)
+            session = await self._get_session()
+            try:
+                if _HAS_CFFI:
+                    resp = await session.request(
+                        method,
+                        url,
+                        data=data,
+                        headers=headers,
+                        cookies=cookies,
+                        proxy=self.proxy,
+                        timeout=to,
+                        allow_redirects=True,
+                    )
+                    return (
+                        resp.status_code,
+                        resp.text or "",
+                        resp.headers.get("Content-Type", ""),
+                    )
+                async with session.request(
                     method,
                     url,
                     data=data,
                     headers=headers,
                     cookies=cookies,
                     proxy=self.proxy,
-                    timeout=to,
-                    allow_redirects=True,
-                )
-                return (
-                    resp.status_code,
-                    resp.text or "",
-                    resp.headers.get("Content-Type", ""),
-                )
-            async with session.request(
-                method,
-                url,
-                data=data,
-                headers=headers,
-                cookies=cookies,
-                proxy=self.proxy,
-                timeout=aiohttp.ClientTimeout(total=to),
-            ) as resp:
-                return (
-                    resp.status,
-                    await resp.text(),
-                    resp.headers.get("Content-Type", ""),
-                )
-        except ZLibraryError:
-            raise
-        except aiohttp.ClientError as e:
-            raise DomainUnreachable(f"连接 {_host(url)} 失败：{e}") from e
-        except asyncio.TimeoutError as e:
-            raise DomainUnreachable(f"连接 {_host(url)} 超时") from e
-        except Exception as e:
-            raise DomainUnreachable(f"连接 {_host(url)} 失败：{e}") from e
+                    timeout=aiohttp.ClientTimeout(total=to),
+                ) as resp:
+                    return (
+                        resp.status,
+                        await resp.text(),
+                        resp.headers.get("Content-Type", ""),
+                    )
+            except ZLibraryError:
+                raise
+            except (aiohttp.ClientError, asyncio.TimeoutError, Exception) as e:
+                last_exc = e
+                # 连接可能已经死在连接池里：丢弃整个 session，重试时新建
+                try:
+                    await self.close()
+                except Exception:
+                    pass
+        msg = f"连接 {_host(url)} 失败：{last_exc}"
+        low = str(last_exc or "").lower()
+        if "timeout" in low or "timed out" in low:
+            msg = f"连接 {_host(url)} 超时（已自动重试 1 次）"
+        elif any(m in low for m in ("ssl", "reset", "closed", "proxy", "curl: (")):
+            msg += "（通常是代理瞬断或闲置连接被掐断，已自动换新连接重试仍未成功；"
+            msg += "请确认代理软件正在运行、节点可用）"
+        raise DomainUnreachable(msg) from last_exc
 
     async def _request_json(self, method: str, url: str, **kwargs) -> dict:
         status, text, ctype = await self._fetch(method, url, **kwargs)
@@ -423,13 +441,17 @@ class ZLibraryClient:
 
     async def _with_failover(self, fn, *args):
         last: Exception | None = None
-        for _ in range(2):
-            await self.ensure_login()
+        for attempt in range(2):
             try:
+                # ensure_login 也在 try 里：登录请求本身遇到代理瞬断时，
+                # 换一轮重新登录（_fetch 内部还有一层「换新连接重试」）
+                await self.ensure_login()
                 return await fn(*args)
             except DomainUnreachable as e:
                 last = e
                 self._failover()
+                if attempt == 0:
+                    await asyncio.sleep(1.0)
         raise last or ZLibraryError("操作失败")
 
     async def search(
